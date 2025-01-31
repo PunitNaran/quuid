@@ -164,21 +164,6 @@ The **GenerateQuantumUUID** function generates a quantum-resistant UUID in sever
 
 7. **UUID v8 Format**: The final quantum UUID is formatted according to UUIDv8 (custom UUID) specifications for compatibility.
 
-### Metadata Structure
-
-Each generated UUID is accompanied by a **QuantumUUIDMetadata** object, which includes the following information:
-
-- **created_at**: Timestamp of when the UUID was created.
-- **uuid_version**: Version of the UUID (e.g., `v8`).
-- **signature_algorithm**: Specifies the algorithms used for signing (ECDSA, SPHINCS+).
-- **key_derivation**: Information about the key derivation function and salt used.
-- **quantum_resistance_strength**: The level of quantum resistance.
-- **use_case**: The intended use for the UUID (e.g., blockchain transactions, IoT authentication).
-- **valid_until**: Expiration or validity period of the UUID.
-- **issuer**: The entity responsible for generating the UUID.
-- **access_level**: Defines access permissions associated with the UUID.
-- **uuid_type**: Identifies the type of UUID (quantum-resistant UUID).
-
 ## Use Cases
 
 ### 1. **Blockchain Transactions**
@@ -197,71 +182,11 @@ Each generated UUID is accompanied by a **QuantumUUIDMetadata** object, which in
    - **Scenario**: **QuantumUUID** can be used as part of a hybrid certificate system to provide secure and quantum-safe certificate generation and verification.
    - **Example**: A user’s digital certificate is signed using **QuantumUUID** to bind their identity to a cryptographically secure and quantum-resistant certificate, which can be verified by others.
 
----
-
-## Mermaid Diagrams: Real-World Scenarios
-
-Below are Mermaid diagrams explaining how **QuantumUUID** and its associated **metadata** can be used in various real-world scenarios.
-
-### **1. Blockchain Transaction ID Usage**
-
-```mermaid
-graph TD;
-    A[User submits transaction] --> B[Generate QuantumUUID for transaction];
-    B --> C[Include UUID in transaction data];
-    C --> D[QuantumUUID Metadata: Contains timestamp, signature algorithm, and access level];
-    D --> E[Store transaction in blockchain];
-    E --> F[Verify transaction using QuantumUUID and metadata];
-    F --> G[Ensure cryptographic strength (ECDSA, SPHINCS+) for verification];
-    G --> H[Complete blockchain transaction securely];
-```
-
-### **2. IoT Device Authentication Flow**
-
-```mermaid
-graph TD;
-    A[IoT Device requests authentication] --> B[Generate QuantumUUID for device];
-    B --> C[Attach QuantumUUID Metadata (created_at, signature_algorithm)];
-    C --> D[Send UUID and metadata to authentication server];
-    D --> E[Server verifies QuantumUUID and metadata (ECDSA, SPHINCS+)];
-    E --> F[Authenticate device and grant access];
-    F --> G[Track access using metadata (access_level)];
-    G --> H[Expire UUID after defined period (valid_until)];
-```
-
-### **3. API Access with QuantumUUID Authentication**
-
-```mermaid
-graph TD;
-    A[Client makes API request] --> B[Generate QuantumUUID for authentication];
-    B --> C[Attach QuantumUUID Metadata (use_case, valid_until)];
-    C --> D[Send QuantumUUID and metadata to API server];
-    D --> E[API verifies QuantumUUID with metadata (signature algorithm, access level)];
-    E --> F[Provide access or deny based on metadata checks];
-    F --> G[Track access usage based on metadata];
-    G --> H[Expire or renew QuantumUUID based on validity period];
-```
-
-### **4. Digital Certificate with QuantumUUID**
-
-```mermaid
-graph TD;
-    A[User requests certificate] --> B[Generate QuantumUUID for certificate];
-    B --> C[Attach QuantumUUID Metadata (uuid_version, issuer, expiration_date)];
-    C --> D[Sign certificate using QuantumUUID];
-    D --> E[Distribute signed certificate to user];
-    E --> F[Certificate verification using QuantumUUID and metadata];
-    F --> G[Ensure cryptographic strength with SPHINCS+ and ECDSA];
-    G --> H[Validate user's identity securely with quantum-resistant certificate];
-```
-
----
-
 ## Installation & Usage
 
 ### Prerequisites
 
-- Go 1.18 or higher
+- Go 1.23 or higher
 - External dependencies:
   - `github.com/ashutoshgngwr/go-qrng`
   - `github.com/fdaines/go-sphincs-plus`
@@ -273,26 +198,6 @@ graph TD;
 go get github.com/ashutoshgngwr/go-qrng
 go get github.com/fdaines/go-sphincs-plus
 go get golang.org/x/crypto
-```
-
-### Example Metadata Output
-
-```json
-{
-    "uuid": "2f98a0b9-91f1-43d3-a99a-98d7b8e7614a",
-    "metadata": {
-        "created_at": "2025-01-14T12:00:00Z",
-        "uuid_version": "v8",
-        "signature_algorithm": "ECDSA, SPHINCS+",
-        "key_derivation": "Argon2di with SHA3-512, salt: <random_salt>",
-        "quantum_resistance_strength": "high",
-        "use_case": "blockchain_transaction",
-        "valid_until": "2025-01-15T12:00:00Z",
-        "issuer": "QuantumUUIDGenerator",
-        "access_level": "read-write",
-        "uuid_type": "Quantum-resistant UUID"
-    }
-}
 ```
 
 # Evaluation of GenerateQuantumUUID
