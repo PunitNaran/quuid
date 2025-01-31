@@ -1,6 +1,6 @@
 module pq-uuid.internal
 
-go 1.23.0
+go 1.23
 
 require (
 	github.com/ashutoshgngwr/go-qrng v0.1.0
