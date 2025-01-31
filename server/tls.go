@@ -24,11 +24,6 @@ func SetupTLS(certFile, keyFile string, mtls bool) (*tls.Config, error) {
 		tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
 	}
 
-	// Enable HTTP/3 if requested (requires QUIC support in Go, for simplicity it's skipped here)
-	if http3 { // TODO
-		// TLS-specific configurations for HTTP/3 can be applied
-	}
-
 	// Return the TLS configuration
 	return tlsConfig, nil
 }

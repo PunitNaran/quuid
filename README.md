@@ -1,4 +1,5 @@
 # QuantumUUID Generation & Use Cases
+(A Quantum-resistant UUID generation and hybrid cryptography with ECDSA and SPHINCS+)
 
 ## Overview
 
@@ -12,6 +13,131 @@ In addition to the UUID itself, **QuantumUUIDMetadata** is generated to provide 
 - **Hybrid Cryptography**: Combines ECDSA (Elliptic Curve Digital Signature Algorithm) and SPHINCS+ (a post-quantum signature scheme) for maximum security.
 - **Multiple Hashing Rounds**: Uses SHA3-512, BLAKE3, and SHAKE256 to process the entropy and enhance security.
 - **Metadata**: Associates essential metadata with each generated UUID for better traceability, security assurance, and version control.
+
+## Dependencies
+
+The application uses several Go packages. To install the dependencies, run:
+
+```bash
+go mod tidy
+```
+
+This command will install the required dependencies specified in `go.mod`.
+
+
+## Building the Application
+
+After setting up the dependencies, you can build the application using the following command:
+
+```bash
+cd cmd/
+```
+
+```bash
+go build -o myapp main.go
+```
+
+This will create an executable file named `myapp` in the current directory.
+
+## Running the Application
+
+### Command-Line Flags
+
+The application accepts several command-line flags:
+
+- `-mode`: Run mode (`server`, `standalone`, `rpc`)
+- `-tls-cert`: Path to the TLS certificate file (required for secure HTTPS connections)
+- `-tls-key`: Path to the TLS private key file (required for secure HTTPS connections)
+- `-mtls`: Enable mutual TLS (optional)
+- `-http3`: Enable HTTP/3 support (optional)
+
+### Running in Server Mode
+
+To run the application as a **server** with TLS enabled and HTTP/3 support, use the following command:
+
+```bash
+./myapp -mode server -tls-cert /path/to/your/cert.crt -tls-key /path/to/your/key.key -mtls -http3
+```
+
+This command will:
+- Start the server in **server mode**.
+- Use the provided **TLS certificate** and **private key** for secure HTTPS connections.
+- Enable **mutual TLS** (mTLS) authentication, which requires both server and client certificates.
+- Enable **HTTP/3** support (using QUIC).
+
+### Running in Standalone Mode
+
+If you need to run the application in **standalone mode**, which could be useful for other tasks like background processing or standalone functionalities:
+
+```bash
+./myapp -mode standalone
+```
+
+This will run the application without starting the server, allowing you to execute other logic in the `standalone` mode.
+
+### Running in RPC Mode
+
+For **RPC mode**, where the application might act as a remote procedure call server:
+
+```bash
+./myapp -mode rpc
+```
+
+This mode should be used if your application is designed to handle RPC-style requests.
+
+## Configuration Options
+
+You can modify the behavior of the server by passing additional flags for configuration. The most common configuration options include:
+
+- **`-tls-cert`**: Path to the TLS certificate file (e.g., `server.crt`).
+- **`-tls-key`**: Path to the TLS private key file (e.g., `server.key`).
+- **`-mtls`**: Enable **mutual TLS** (mTLS) to require client certificates.
+- **`-http3`**: Enable **HTTP/3** (QUIC) support.
+
+## Accessing the Server
+
+Once the server is running in **server mode**, you can access the server through HTTPS at `https://localhost` or `https://<your-server-ip>`. Ensure that the server is accessible and that the correct ports are open.
+
+For **HTTP/3**, you may need a client (like Chrome or Firefox) that supports QUIC and HTTP/3.
+
+### Example:
+
+- **Access the server on HTTP/3**:
+  - Open Chrome or Firefox.
+  - Navigate to `https://localhost` (or your server’s IP address).
+  - Ensure you are using a QUIC-enabled browser to take advantage of HTTP/3.
+
+## Graceful Shutdown
+
+The server is designed to handle graceful shutdowns. When a termination signal (`SIGINT`, `SIGTERM`) is received, the server will stop accepting new connections and will close existing connections after a 10-second timeout.
+
+## Error Handling
+
+In case of errors, the application will log them and terminate if necessary. Ensure that the following are correctly set up:
+- TLS certificate and private key paths.
+- QUIC configuration for HTTP/3.
+- Correct server modes and flags.
+
+## Example Usage
+
+### Run in Server Mode with mTLS and HTTP/3:
+
+```bash
+./myapp -mode server -tls-cert server.crt -tls-key server.key -mtls -http3
+```
+
+### Run in Standalone Mode:
+
+```bash
+./myapp -mode standalone
+```
+
+### Run in RPC Mode:
+
+```bash
+./myapp -mode rpc
+```
+
 
 ## Code Explanation
 

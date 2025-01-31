@@ -7,15 +7,13 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/x509"
-	"encoding/base64"
+	"encoding/asn1"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"log"
 	"math/big"
 	"time"
 
@@ -54,6 +52,7 @@ type QuantumUUIDMetadata struct {
 	Timestamp    int64  `json:"timestamp"`
 	DerivedKey   string `json:"derivedKey"`
 	RandomSource string `json:"randomSource"` // Indicates QRNG usage
+	Entropy      string `json:"entropy"`
 }
 
 // Constants for QRUUID Version and Variant (from RFC 4122 and RFC 9562)
@@ -75,6 +74,8 @@ func SetQRUUIDVersionAndVariant(uuid []byte) []byte {
 // GenerateQuantumUUID creates a quantum-resistant UUID and its hybrid metadata.
 func GenerateQuantumUUID() (*QuantumUUIDMetadata, error) {
 	// Step 1: QRNG entropy generation
+	// Uses the Australian National University's Quantum Random Number Generator
+	// This could be changed later to a In-House QRNG
 	q := &qrng.Config{
 		PanicOnError: false,
 		EnableBuffer: true,
@@ -115,7 +116,7 @@ func GenerateQuantumUUID() (*QuantumUUIDMetadata, error) {
 
 	// Step 3: Key derivation (Argon2id)
 	salt := []byte(fmt.Sprintf("%d", timestamp))
-	derivedKey := argon2.IDKey(sha3Output[:], salt, 3, 32*1024, 4, 32)
+	derivedKey := argon2.IDKey(sha3Output[:], salt, 3, 32*1024, 4, 48)
 
 	// Step 4: Hybrid cryptography (ECDSA + SPHINCS+)
 	privateKey, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
@@ -126,7 +127,8 @@ func GenerateQuantumUUID() (*QuantumUUIDMetadata, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode ECDSA key to PEM: %v", err)
 	}
-	ecdsaSignature, err := privateKey.Sign(rand.Reader, derivedKey, nil)
+
+	ecdsaSignature, err := ecdsa.SignASN1(rand.Reader, privateKey, derivedKey[:])
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign with ECDSA: %v", err)
 	}
@@ -144,12 +146,16 @@ func GenerateQuantumUUID() (*QuantumUUIDMetadata, error) {
 	}
 
 	// Step 5: Masking the UUID with AES encryption
-	block, err := aes.NewCipher(derivedKey)
+	aesKey := derivedKey[:32]  // First 32 bytes for AES key
+	aesIV := derivedKey[32:48] // Last 16 bytes for IV
+
+	block, err := aes.NewCipher(aesKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create AES cipher: %v", err)
 	}
+
 	ciphertext := make([]byte, len(sha3Output))
-	stream := cipher.NewCTR(block, sha3Output[:aes.BlockSize])
+	stream := cipher.NewCTR(block, aesIV)
 	stream.XORKeyStream(ciphertext, sha3Output)
 
 	// Combine ciphertext and signatures
@@ -158,17 +164,22 @@ func GenerateQuantumUUID() (*QuantumUUIDMetadata, error) {
 
 	quantumUUID = SetQRUUIDVersionAndVariant(quantumUUID)
 
+	sig, err := spSignature.SerializeSignature()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create SPHINCS Serialize Signature: %v", err)
+	}
 	// Create metadata
 	metadata := &QuantumUUIDMetadata{
 		UUID:         hex.EncodeToString(quantumUUID),
 		ECDSASig:     hex.EncodeToString(ecdsaSignature),
 		ECDSAPub:     pubKey,
-		SPHINCSSig:   hex.EncodeToString(spSignature.GetR()),
+		SPHINCSSig:   hex.EncodeToString(sig),
 		SPHINCSPub:   hex.EncodeToString(serializedPK),
 		Hash:         hex.EncodeToString(sha3Output),
 		Timestamp:    timestamp,
 		DerivedKey:   hex.EncodeToString(derivedKey),
 		RandomSource: "QRNG + System Entropy",
+		Entropy:      hex.EncodeToString(entropy),
 	}
 
 	return metadata, nil
@@ -182,37 +193,65 @@ func ValidateQuantumUUID(quantumUUID string, metadata QuantumUUIDMetadata) (bool
 		return false, fmt.Errorf("Invalid UUID format")
 	}
 
-	pubKeyRaw, err := base64.URLEncoding.DecodeString(string(metadata.ECDSAPub))
-	if err != nil {
-		return false, fmt.Errorf("Unable to bas64 decode ECDSAPubKey")
-	}
 	// Step 3: Verify Signatures
-	pubKey, err := DecodePEMToECDSAPublicKey(pubKeyRaw)
+	pubKey, err := DecodePEMToECDSAPublicKey(metadata.ECDSAPub)
 	if err != nil {
 		return false, fmt.Errorf("Unable to decode to ECDSAPubKey from PEM Key")
 	}
-	if !verifyECDSASignature(uuidData, []byte(metadata.ECDSASig), pubKey) {
+	signiture, err := hex.DecodeString(metadata.ECDSASig)
+	if err != nil {
+		return false, fmt.Errorf("Unable to decode to ECDSASig")
+	}
+
+	hashed, err := hex.DecodeString(metadata.DerivedKey)
+	if err != nil {
+		return false, fmt.Errorf("Derived key decode failed")
+	}
+	if !verifyECDSASignature(hashed, signiture, pubKey) {
 		return false, fmt.Errorf("ECDSA signature verification failed")
 	}
 
-	if !verifySPHINCSPlusSignature(uuidData, []byte(metadata.SPHINCSSig), []byte(metadata.SPHINCSPub)) {
+	if !verifySPHINCSPlusSignature(metadata.Hash, metadata.SPHINCSSig, metadata.SPHINCSPub) {
 		return false, fmt.Errorf("SPHINCS+ signature verification failed")
 	}
 
-	// Step 4: Check Hashing Integrity
-	// Compute and compare hashes: SHA3-256, BLAKE3, and SHA3-512
-	computedHash := computeHash(uuidData)
-	if !compareHashes(computedHash, []byte(metadata.Hash)) {
+	// Step 4: Recompute the hash using stored entropy
+	entropy, err := hex.DecodeString(metadata.Entropy)
+	if err != nil {
+		return false, fmt.Errorf("Failed to decode stored entropy: %v", err)
+	}
+
+	hash1 := sha3.NewShake256()
+	hash1.Write(entropy)
+	var shakeOutput [64]byte
+	hash1.Read(shakeOutput[:])
+
+	blake3Output := blake3.Sum512(shakeOutput[:])
+
+	hash3 := sha3.New512()
+	hash3.Write(blake3Output[:])
+	sha3Output := hash3.Sum(nil)
+
+	// Step 5: Check Hash Integrity
+	computedHash := sha3Output
+
+	computedHashFromMetadata, err := hex.DecodeString(metadata.Hash)
+	if err != nil {
+		return false, fmt.Errorf("failed to decode stored hash from metadata: %v", err)
+	}
+
+	if !compareHashes(computedHash, computedHashFromMetadata) {
 		return false, fmt.Errorf("Hash mismatch")
 	}
 
-	// Step 5: Validate Metadata Integrity (Timestamp, Key Material, etc.)
+	// Step 6: Validate Metadata Integrity (Timestamp, Key Material, etc.)
 	if !validateTimestamp(metadata.Timestamp) {
 		return false, fmt.Errorf("Invalid timestamp")
 	}
 
-	// Optional: Validate derived key and encryption if needed
-	if !verifyEncryption(uuidData, []byte(metadata.DerivedKey)) {
+	// Step 7: Validate Encryption (AES + Derived Key)
+	// Call verifyEncryption with expectedHash (sha3Output) from metadata
+	if !verifyEncryption(uuidData[:64], hashed, computedHash) {
 		return false, fmt.Errorf("Encryption validation failed")
 	}
 
@@ -220,39 +259,53 @@ func ValidateQuantumUUID(quantumUUID string, metadata QuantumUUIDMetadata) (bool
 	return true, nil
 }
 
-// Function to verify ECDSA Signature
-func verifyECDSASignature(message []byte, signature []byte, pubKey *ecdsa.PublicKey) bool {
-	// Hash the message
-	hashedMessage := sha256.Sum256(message)
+// ECDSA Signature structure for ASN.1 DER decoding
+type ecdsaSignature struct {
+	R, S *big.Int
+}
 
-	// Decode the signature (assuming it's a DER-encoded signature)
-	r, s := new(big.Int), new(big.Int)
-	if len(signature) != 64 {
-		log.Printf("Invalid signature length")
+// verifyECDSASignature verifies an ECDSA P-384 signature.
+func verifyECDSASignature(derivedKey []byte, signature []byte, pubKey *ecdsa.PublicKey) bool {
+	// Step 1: Decode the ASN.1 encoded signature
+	var sig ecdsaSignature
+	if _, err := asn1.Unmarshal(signature, &sig); err != nil {
+		fmt.Println("Error: Failed to decode ASN.1 signature:", err)
 		return false
 	}
 
-	r.SetBytes(signature[:32])
-	s.SetBytes(signature[32:])
-
-	// Verify the signature
-	valid := ecdsa.Verify(pubKey, hashedMessage[:], r, s)
-	return valid
+	// Step 2: Verify the signature
+	isValid := ecdsa.Verify(pubKey, derivedKey[:], sig.R, sig.S)
+	fmt.Println("ECDSA Verification Result:", isValid)
+	return isValid
 }
 
 // Example function to verify SPHINCS+ signature
-func verifySPHINCSPlusSignature(uuidData []byte, signature []byte, pubKey []byte) bool {
+func verifySPHINCSPlusSignature(hashHex string, signature string, pubKey string) bool {
 	// Your SPHINCS+ verification logic here
 	params := parameters.MakeSphincsPlusSHAKE256256fRobust(true)
-	sg, err := sphincs_plus.DeserializeSignature(params, signature)
+	sig, err := hex.DecodeString(signature)
 	if err != nil {
 		return false
 	}
-	pk, err := sphincs_plus.DeserializePK(params, pubKey)
+	sg, err := sphincs_plus.DeserializeSignature(params, sig)
 	if err != nil {
 		return false
 	}
-	sphincs_plus.Spx_verify(params, uuidData, sg, pk)
+	key, err := hex.DecodeString(pubKey)
+	if err != nil {
+		return false
+	}
+	pk, err := sphincs_plus.DeserializePK(params, key)
+	if err != nil {
+		return false
+	}
+
+	// Step 2: decode the hashHex
+	hash, err := hex.DecodeString(hashHex)
+	if err != nil {
+		return false
+	}
+	sphincs_plus.Spx_verify(params, hash, sg, pk)
 	return true
 }
 
@@ -271,7 +324,8 @@ func compareHashes(computedHash []byte, expectedHash []byte) bool {
 // Example function to validate timestamp range
 func validateTimestamp(timestamp int64) bool {
 	// Ensure timestamp is within a reasonable range
-	return timestamp > 0 && timestamp < time.Now().Unix()
+	v := timestamp > 1738276354042445800 && timestamp < time.Now().UnixNano()
+	return v
 }
 
 // Function to validate UUID structure: length, version, and variant
@@ -301,38 +355,33 @@ func isValidUUID(quantumUUID string) ([]byte, bool) {
 }
 
 // Function to verify the AES decryption of the UUID data
-func verifyEncryption(uuidData []byte, derivedKey []byte) bool {
-	// Check if the UUID data length matches what we expect (should be 128 bytes)
-	if len(uuidData) != 128 {
+func verifyEncryption(encryptedUUID, derivedKey []byte, expectedHash []byte) bool {
+	// Check if the UUID data length matches what we expect (should be 64 bytes)
+	if len(encryptedUUID) != 64 {
 		return false
 	}
 
-	// Use the first 16 bytes as the AES IV (Initialization Vector) for CTR mode
-	iv := uuidData[:aes.BlockSize]         // Assuming the first 16 bytes are used as IV
-	cipherText := uuidData[aes.BlockSize:] // The remaining part is the encrypted ciphertext
+	// Extract AES key (first 32 bytes) and IV (next 16 bytes)
+	aesKey := derivedKey[:32]
+	aesIV := derivedKey[32:48]
 
-	// Create a new AES cipher block using the derived key
-	block, err := aes.NewCipher(derivedKey)
+	// Create AES cipher block with the provided key
+	block, err := aes.NewCipher(aesKey)
 	if err != nil {
-		fmt.Printf("Error creating AES cipher: %v\n", err)
 		return false
 	}
 
-	// Create a new AES CTR stream
-	stream := cipher.NewCTR(block, iv)
+	// Create the AES CTR stream cipher
+	stream := cipher.NewCTR(block, aesIV)
 
-	// Decrypt the ciphertext
-	decrypted := make([]byte, len(cipherText))
-	stream.XORKeyStream(decrypted, cipherText)
+	// Decrypt the UUID data using AES CTR mode
+	decryptedUUID := make([]byte, len(expectedHash))
+	stream.XORKeyStream(decryptedUUID, expectedHash)
 
-	// Here we assume the decrypted data should match the expected cleartext (hash or other data)
-	// In this case, we will just check that the decrypted data is not empty as an example validation
-	if len(decrypted) == 0 {
-		return false
-	}
-
-	// Add further checks as necessary, depending on the expected structure of the decrypted data
-	return true
+	decryptedUUID = SetQRUUIDVersionAndVariant(decryptedUUID)
+	// At this point, decryptedUUID should match the expected sha3Output
+	// Compare the decrypted result with the expected hash (sha3Output)
+	return compareHashes(decryptedUUID, encryptedUUID)
 }
 
 // EncodeECDSAPublicKeyToPEM encodes an ECDSA public key to PEM format.
