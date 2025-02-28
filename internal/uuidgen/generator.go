@@ -44,15 +44,17 @@ Use a database (e.g., PostgreSQL, MongoDB) to store UUIDs and associated metadat
 
 type QuantumUUIDMetadata struct {
 	UUID         string `json:"uuid"`
-	ECDSASig     string `json:"ecdsaSignature"`
 	ECDSAPub     []byte `json:"ecdsaPublicKey"`
-	SPHINCSSig   string `json:"sphincsSignature"`
 	SPHINCSPub   string `json:"sphincsPublicKey"`
-	Hash         string `json:"hash"`
 	Timestamp    int64  `json:"timestamp"`
-	DerivedKey   string `json:"derivedKey"`
-	RandomSource string `json:"randomSource"` // Indicates QRNG usage
-	Entropy      string `json:"entropy"`
+	RandomSource string `json:"randomSource,omitempty"` // Indicates QRNG usage
+
+	// Private fields (not shared in the API response)
+	ECDSASig   string `json:"ecdsaSignature,omitempty"`
+	SPHINCSSig string `json:"sphincsSignature,omitempty"`
+	Hash       string `json:"hash,omitempty"`
+	DerivedKey string `json:"derivedKey,omitempty"`
+	Entropy    string `json:"entropy,omitempty"`
 }
 
 // Constants for QRUUID Version and Variant (from RFC 4122 and RFC 9562)

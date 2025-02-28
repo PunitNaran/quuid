@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"flag"
+	"fmt"
 	"os"
 
 	"pq-uuid.internal/internal/uuidgen"
@@ -17,12 +18,14 @@ import (
 )
 
 func main() {
+	fmt.Println("Arguments:", os.Args)
 	// Parse flags to determine the mode
 	mode := flag.String("mode", "server", "Run mode: server, standalone, rpc")
-	tlsCertFile := flag.String("tls-cert", "server.crt", "Path to TLS certificate file")
-	tlsKeyFile := flag.String("tls-key", "server.key", "Path to TLS private key file")
+	tlsCertFile := flag.String("tls-cert", "", "Path to TLS certificate file")
+	tlsKeyFile := flag.String("tls-key", "", "Path to TLS private key file")
 	mtls := flag.Bool("mtls", false, "Enable mutual TLS")
 	http3 := flag.Bool("http3", false, "Enable HTTP/3 support")
+	domain := flag.String("domain", "", "Domain for Let's Encrypt")
 
 	flag.Parse()
 
@@ -30,7 +33,7 @@ func main() {
 	logger.Init()
 
 	// Parse the configuration (e.g., TLS, mTLS)
-	cfg := config.ParseFlags(*tlsCertFile, *tlsKeyFile, *mtls, *http3)
+	cfg := config.ParseFlags(*domain, *tlsCertFile, *tlsKeyFile, *mtls, *http3)
 
 	// Depending on mode, execute the relevant logic
 	switch *mode {

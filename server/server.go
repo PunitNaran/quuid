@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net/http"
@@ -72,6 +73,29 @@ func NewServer() *echo.Echo {
 			log.Error().Err(err).Msg("Invalid request body")
 			return c.String(http.StatusBadRequest, fmt.Sprintf("Invalid request: %v", err))
 		}
+		// Retrieve the stored metadata from the database
+		storedMetadata, err := dbStore.Get(request.QuantumUUID)
+		if err != nil {
+			log.Error().Err(err).Msg("UUID does not exist")
+			return c.String(http.StatusNotFound, "Error: QUUID not found")
+		}
+
+		// Verify the essential values match
+		if request.Metadata.UUID != storedMetadata.UUID ||
+			!bytes.Equal(request.Metadata.ECDSAPub, storedMetadata.ECDSAPub) ||
+			request.Metadata.SPHINCSPub != storedMetadata.SPHINCSPub ||
+			request.Metadata.Timestamp != storedMetadata.Timestamp ||
+			request.Metadata.RandomSource != storedMetadata.RandomSource {
+			log.Warn().Msg("Validation failed: Metadata does not match stored record")
+			return c.String(http.StatusUnauthorized, "Validation failed: Metadata mismatch")
+		} else {
+			request.Metadata.DerivedKey = storedMetadata.DerivedKey
+			request.Metadata.ECDSASig = storedMetadata.ECDSASig
+			request.Metadata.Entropy = storedMetadata.Entropy
+			request.Metadata.Hash = storedMetadata.Hash
+			request.Metadata.SPHINCSSig = storedMetadata.SPHINCSSig
+		}
+
 		isValid, err := uuidgen.ValidateQuantumUUID(request.QuantumUUID, request.Metadata)
 		if err != nil {
 			log.Error().Err(err).Msg("UUID validation failed")
@@ -93,7 +117,7 @@ func NewServer() *echo.Echo {
 
 func RunServer(cfg *config.Config, e *echo.Echo) {
 	// Setup TLS and hitless rotation
-	tlsConfig, err := SetupTLS(cfg.TLSCertFile, cfg.TLSKeyFile, cfg.MTLS)
+	tlsConfig, err := SetupTLS(cfg.Domain, cfg.TLSCertFile, cfg.TLSKeyFile, cfg.MTLS)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to setup TLS")
 	}
